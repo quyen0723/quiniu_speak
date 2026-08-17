@@ -9,7 +9,7 @@ Deployment overrides (Vercel + GitHub Pages) are documented in the project plan.
 ## Architecture
 
 ```
-GitHub Pages (static frontend)  ──fetch + Bearer──►  Vercel Function (api/speech.ts)
+GitHub Pages (static frontend)  ──fetch + Bearer──►  Vercel Function (api/speech.js)
   React + Vite + TS + Tailwind                            Node serverless
   IndexedDB cache (localForage)                           edge-tts-universal → Microsoft Edge TTS
   Web Audio API mixer                                     OpenAI-compatible /v1/audio/speech
@@ -24,7 +24,7 @@ GitHub Pages (static frontend)  ──fetch + Bearer──►  Vercel Function (
 ## Repo layout
 
 ```
-api/speech.ts              # Vercel function (OpenAI-compatible TTS proxy)
+api/speech.js              # Vercel function (OpenAI-compatible TTS proxy, plain JS)
 vercel.json                # routes + runtime config
 frontend/                  # React + Vite app
   src/lib/                 # config, token, ttsClient, chunker, cache, audioQueue, mixer

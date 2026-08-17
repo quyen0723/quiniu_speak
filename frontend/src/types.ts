@@ -8,7 +8,7 @@ export interface VoiceOption {
   lang: Language;
 }
 
-// Keep in sync with the VOICE_ALLOWLIST in api/speech.ts.
+// Keep in sync with the VOICE_ALLOWLIST in api/speech.js.
 export const VOICES: VoiceOption[] = [
   { id: 'vi-VN-HoaiMyNeural', label: 'Hoài My — nữ', lang: 'vi' },
   { id: 'vi-VN-NamMinhNeural', label: 'Nam Minh — nam', lang: 'vi' },
