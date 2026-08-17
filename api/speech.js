@@ -73,8 +73,9 @@ function checkBearer(req) {
 // 1.0 -> '0%', 1.5 -> '+50%', 0.5 -> '-50%'.
 function speedToRate(speed) {
   const pct = Math.round((speed - 1) * 100);
-  if (pct === 0) return '0%';
-  return (pct > 0 ? '+' : '') + pct + '%';
+  // Edge-TTS requires a signed percentage string (e.g. '+0%', '+50%', '-50%');
+  // a bare '0%' is rejected by the service as "Invalid rate".
+  return (pct >= 0 ? '+' : '') + pct + '%';
 }
 
 export default async function handler(req, res) {
