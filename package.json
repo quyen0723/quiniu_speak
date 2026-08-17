@@ -1,0 +1,15 @@
+{
+  "name": "quiniu-speak",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal bilingual TTS reader — Vercel function + GitHub Pages frontend",
+  "dependencies": {
+    "edge-tts-universal": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@vercel/node": "^5.10.1",
+    "typescript": "^7.0.2"
+  }
+}

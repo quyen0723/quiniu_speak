@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+dist/
+
+# Vercel
+.vercel/
+
+# Env / secrets — never commit
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log
+.vscode/
+.idea/

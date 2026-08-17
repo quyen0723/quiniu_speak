@@ -1,0 +1,153 @@
+// Vercel serverless function — OpenAI-compatible TTS proxy backed by Microsoft Edge TTS.
+//
+// Runtime: Node serverless (Node 20 satisfies edge-tts-universal's Node 18.17+ requirement).
+// Do NOT switch to `edge` runtime without verifying outbound WebSocket + custom-header support.
+//
+// Env vars (set in Vercel project settings, never committed):
+//   TTS_BEARER_TOKEN    — 64-hex secret (openssl rand -hex 32). Client sends as `Authorization: Bearer <token>`.
+//   TTS_ALLOWED_ORIGIN  — comma-separated list of allowed origins (GitHub Pages URL + dev origins).
+//
+// Endpoint shape mirrors OpenAI POST /v1/audio/speech so the frontend can swap to real OpenAI
+// or Kokoro-FastAPI later without code changes (the "strategic chess move", design doc line 188).
+
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import crypto from 'node:crypto';
+
+export const config = {
+  runtime: 'nodejs',
+  maxDuration: 10,
+};
+
+// Voice allowlist — prevent arbitrary voice IDs being passed through (minor hardening).
+const VOICE_ALLOWLIST = new Set([
+  // Vietnamese
+  'vi-VN-HoaiMyNeural',
+  'vi-VN-NamMinhNeural',
+  'vi-VN-NamMinhNeural',
+  // English
+  'en-US-AriaNeural',
+  'en-US-GuyNeural',
+  'en-US-JennyNeural',
+  'en-US-ChristopherNeural',
+  'en-GB-SoniaNeural',
+  'en-GB-RyanNeural',
+  'en-AU-NatashaNeural',
+  'en-AU-WilliamNeural',
+]);
+
+const MAX_INPUT_CHARS = 1500; // keep each Vercel invocation well under the 10s Node Hobby cap
+
+function allowedOrigins(): string[] {
+  const raw = process.env.TTS_ALLOWED_ORIGIN || '';
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function setCors(res: VercelResponse, origin: string | undefined) {
+  const list = allowedOrigins();
+  // Echo the requesting origin only if it is in the allowlist; else pick the first (or none).
+  const value =
+    origin && list.includes(origin) ? origin : list[0] || '';
+  res.setHeader('Access-Control-Allow-Origin', value);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+}
+
+function jsonError(res: VercelResponse, status: number, message: string, type = 'invalid_request_error') {
+  return res.status(status).json({ error: { message, type } });
+}
+
+function checkBearer(req: VercelRequest): boolean {
+  const expected = process.env.TTS_BEARER_TOKEN;
+  if (!expected) return false; // if the env var is unset, deny everything (fail closed)
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!token) return false;
+  const a = Buffer.from(token, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  // constant-time compare to avoid timing side-channel
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Map OpenAI `speed` float (0.25x–4.0x) to edge-tts percentage string.
+// 1.0 -> '0%', 1.5 -> '+50%', 0.5 -> '-50%'.
+function speedToRate(speed: number): string {
+  const pct = Math.round((speed - 1) * 100);
+  if (pct === 0) return '0%';
+  return (pct > 0 ? '+' : '') + pct + '%';
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // 1. CORS + preflight
+  setCors(res, req.headers.origin);
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  if (req.method !== 'POST') {
+    return jsonError(res, 405, 'Method not allowed. Use POST.', 'invalid_request_error');
+  }
+
+  // 2. Auth
+  if (!checkBearer(req)) {
+    return jsonError(res, 401, 'Invalid or missing bearer token.', 'unauthorized');
+  }
+
+  // 3. Parse + validate
+  const body = (req.body || {}) as {
+    input?: string;
+    voice?: string;
+    speed?: number;
+    response_format?: string;
+    model?: string;
+  };
+
+  const input = typeof body.input === 'string' ? body.input : '';
+  if (!input.trim()) {
+    return jsonError(res, 400, '`input` is required and must be a non-empty string.');
+  }
+  if (input.length > MAX_INPUT_CHARS) {
+    return jsonError(
+      res,
+      413,
+      `Input too long (${input.length} chars). Split into chunks of at most ${MAX_INPUT_CHARS} chars on the client.`,
+    );
+  }
+
+  const voice = (body.voice || 'vi-VN-HoaiMyNeural').trim();
+  if (!VOICE_ALLOWLIST.has(voice)) {
+    return jsonError(res, 400, `Voice '${voice}' is not allowed.`, 'invalid_request_error');
+  }
+
+  const speed = Number(body.speed ?? 1.0);
+  if (!Number.isFinite(speed) || speed < 0.25 || speed > 4.0) {
+    return jsonError(res, 400, '`speed` must be a number between 0.25 and 4.0.');
+  }
+
+  // `model` is accepted for OpenAI compatibility but ignored (both tts-1 / tts-1-hd map to Edge).
+  const response_format = (body.response_format || 'mp3').toLowerCase();
+  if (response_format !== 'mp3') {
+    // edge-tts-universal WAV support is limited; transcoding is too heavy for serverless.
+    return jsonError(res, 400, "Only 'mp3' response_format is supported.");
+  }
+
+  // 4. Synthesize via edge-tts-universal
+  try {
+    const { EdgeTTS } = await import('edge-tts-universal');
+    const tts = new EdgeTTS(input, voice, {
+      rate: speedToRate(speed),
+      volume: '+0%',
+    });
+    const result = await tts.synthesize();
+    const buf = Buffer.from(await result.audio.arrayBuffer());
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).end(buf);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'TTS synthesis failed.';
+    // Never log the input text (privacy).
+    console.error('[speech] synthesis error:', message);
+    return jsonError(res, 502, `TTS provider error: ${message}`, 'tts_error');
+  }
+}
