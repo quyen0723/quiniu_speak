@@ -73,10 +73,21 @@ curl -X POST https://<vercel-project>.vercel.app/v1/audio/speech \
 ```
 
 ## Deployment
-- **Frontend → GitHub Pages**: push to `main` triggers `.github/workflows/deploy-frontend.yml`
-  (builds Vite with `VITE_TTS_API_BASE`, publishes `frontend/dist`). Enable in repo
-  Settings → Pages → Source: GitHub Actions.
+- **Frontend → GitHub Pages**: push to `main` (under `frontend/`) triggers
+  `.github/workflows/deploy-frontend.yml` (builds Vite, copies `index.html`→`404.html`,
+  publishes `frontend/dist`).
+  1. Enable in repo Settings → Pages → Source: **GitHub Actions**.
+  2. Add a repository **variable** (NOT a secret — the value is public) at
+     Settings → Secrets and variables → Actions → Variables:
+     `VITE_TTS_API_BASE` = `https://<your-vercel-project>.vercel.app`
+  3. App URL: `https://quyen0723.github.io/quiniu_speak/`
 - **Function → Vercel**: auto-deploys on push to `main`.
+
+## Background music
+Drop mp3 files into `frontend/public/music/` (gitignored? no — committed, but they are
+your own royalty-free tracks). The app references `lofi-1.mp3` and `piano-1.mp3` by
+default; edit `MUSIC_TRACKS` in `frontend/src/App.tsx` to add more. If a file is
+missing, the music player fails silently (no crash).
 
 ## License note
 `edge-tts-universal` is AGPL-3.0. This repo is public, so source disclosure is satisfied.
