@@ -35,7 +35,10 @@ const VOICE_ALLOWLIST = new Set([
   'en-AU-WilliamNeural',
 ]);
 
-const MAX_INPUT_CHARS = 1500; // keep each Vercel invocation well under the 10s Node Hobby cap
+// Keep each Vercel invocation well under the 10s Node Hobby cap. Empirically
+// synthesis is ~1s fixed + ~30 chars/s; 250 chars ≈ ~8s cold — safe ceiling. The
+// client chunker targets 200 chars; this is the server-side hard cap (defense in depth).
+const MAX_INPUT_CHARS = 250;
 
 function allowedOrigins() {
   const raw = process.env.TTS_ALLOWED_ORIGIN || '';
@@ -50,6 +53,7 @@ function setCors(res, origin) {
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Max-Age', '86400'); // cache successful preflight 24h
 }
 
 function jsonError(res, status, message, type = 'invalid_request_error') {

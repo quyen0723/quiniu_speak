@@ -1,8 +1,15 @@
 // Sentence-bounded chunking. Splits on . ? ! ; so each chunk is a complete sentence
 // (preserves intonation within a chunk). Each chunk is capped at ~MAX chars to keep
 // every Vercel function invocation well under the 10s Node Hobby budget.
+//
+// Empirically (measured against the deployed Vercel function, vi-VN-HoaiMyNeural):
+//   ~1s fixed overhead + ~30 chars/s synthesis. Cold start adds ~1-2s.
+//   239 chars ≈ 7.0s, 319 chars ≈ 8.8s, 479 chars ≈ 10.4s → 504 timeout.
+// MAX=200 keeps warm synthesis ~6s (cold ~7-8s), safely under the 10s cap with buffer
+// for Microsoft-side variance. Smaller chunks = more requests, but each one reliably
+// succeeds; repeat plays are instant via the IndexedDB cache.
 
-const MAX = 1200;
+const MAX = 200;
 
 // Normalize whitespace inside a chunk.
 function clean(s: string): string {
