@@ -30,20 +30,35 @@ export async function fetchTTSAudio(input: string, voice: string, speed: number)
     throw new TTSError(401, 'Chưa nhập token. Bấm biểu tượng khoá để nhập.', 'unauthorized');
   }
 
-  const res = await fetch(`${TTS_API_BASE}/v1/audio/speech`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      model: 'tts-1',
-      input,
-      voice,
-      response_format: 'mp3',
-      speed,
-    } satisfies SpeechRequest),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${TTS_API_BASE}/v1/audio/speech`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input,
+        voice,
+        response_format: 'mp3',
+        speed,
+      } satisfies SpeechRequest),
+    });
+  } catch (e) {
+    // Network-level failure (DNS, offline, CORS preflight rejected, 504 with no
+    // ACAO header). fetch rejects with a TypeError whose message is the opaque
+    // "Failed to fetch" — surface a friendlier Vietnamese message instead.
+    if (e instanceof TypeError) {
+      throw new TTSError(
+        0,
+        'Không kết nối được tới server TTS. Kiểm tra mạng hoặc VITE_TTS_API_BASE.',
+        'network_error',
+      );
+    }
+    throw e;
+  }
 
   if (!res.ok) {
     let message = `Lỗi HTTP ${res.status}`;

@@ -12,10 +12,10 @@ import { AudioQueueManager, type QueueState } from './lib/audioQueue';
 import { mixer } from './lib/mixer';
 import { voicesFor, type Language } from './types';
 
-const MUSIC_TRACKS: MusicTrack[] = [
-  { id: 'lofi', label: 'Lofi 1', src: `${import.meta.env.BASE_URL}music/lofi-1.mp3` },
-  { id: 'piano', label: 'Piano 1', src: `${import.meta.env.BASE_URL}music/piano-1.mp3` },
-];
+// Background music tracks. Empty by default — bundled mp3s would 404 unless
+// actually committed under frontend/public/music/. To enable music, drop files
+// there and add entries here: { id, label, src: `${import.meta.env.BASE_URL}music/<file>.mp3` }.
+const MUSIC_TRACKS: MusicTrack[] = [];
 
 const INITIAL_QUEUE: QueueState = {
   isPlaying: false,
@@ -41,7 +41,7 @@ export default function App() {
   // --- audio levels / music ---
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [musicEnabled, setMusicEnabled] = useState(false);
-  const [musicTrackId, setMusicTrackId] = useState(MUSIC_TRACKS[0].id);
+  const [musicTrackId, setMusicTrackId] = useState<string>(MUSIC_TRACKS[0]?.id ?? '');
   const [musicVolume, setMusicVolume] = useState(0.4);
 
   // --- token gate ---
@@ -54,8 +54,8 @@ export default function App() {
   const queueRef = useRef<AudioQueueManager | null>(null);
   const genIdRef = useRef(0); // bumps on each Generate to cancel stale loops
 
-  const musicTrack = useMemo(
-    () => MUSIC_TRACKS.find((t) => t.id === musicTrackId) ?? MUSIC_TRACKS[0],
+  const musicTrack = useMemo<MusicTrack | null>(
+    () => MUSIC_TRACKS.find((t) => t.id === musicTrackId) ?? MUSIC_TRACKS[0] ?? null,
     [musicTrackId],
   );
 
@@ -67,7 +67,7 @@ export default function App() {
     const unsub = q.subscribe(setQueueState);
     return () => {
       unsub();
-      q.clear();
+      q.destroy(); // detach element listeners + revoke URLs (StrictMode safe)
       queueRef.current = null;
     };
   }, []);
@@ -77,13 +77,15 @@ export default function App() {
     mixer.setVoiceVolume(voiceVolume);
   }, [voiceVolume]);
 
-  // Music element control: attach to mixer, set src, play/pause on enable/track change.
+  // Music element control: attach to mixer, set src, play/pause on enable/track
+  // change. Deliberately split from the volume effect below so that dragging the
+  // music volume slider does NOT re-set el.src (which would restart the track
+  // from the beginning — the M1 bug).
   useEffect(() => {
     const el = musicElRef.current;
     if (!el) return;
-    if (musicEnabled) {
+    if (musicEnabled && musicTrack) {
       mixer.attachMusic(el);
-      mixer.setMusicVolume(musicVolume);
       el.src = musicTrack.src;
       el.loop = true;
       void el.play().catch(() => {
@@ -92,7 +94,12 @@ export default function App() {
     } else {
       el.pause();
     }
-  }, [musicEnabled, musicTrack, musicVolume]);
+  }, [musicEnabled, musicTrack]);
+
+  // Music volume — applied live without touching src or playback position.
+  useEffect(() => {
+    if (musicEnabled) mixer.setMusicVolume(musicVolume);
+  }, [musicVolume, musicEnabled]);
 
   // --- handlers ---
   const onLanguageChange = (lang: Language) => {
@@ -106,7 +113,11 @@ export default function App() {
       const cached = await getCache(key);
       if (cached) return cached;
       const blob = await fetchTTSAudio(chunk, voice, speed);
-      await setCache(key, blob);
+      try {
+        await setCache(key, blob);
+      } catch {
+        /* IndexedDB quota exceeded — cache is best-effort, don't abort generation */
+      }
       return blob;
     },
     [voice, speed],
@@ -232,10 +243,6 @@ export default function App() {
           onTrackChange={setMusicTrackId}
           onVolumeChange={setMusicVolume}
         />
-
-        <footer className="pt-2 text-center text-xs text-neutral-400">
-          {getToken() ? '' : ''}
-        </footer>
       </div>
 
       {/* Hidden audio elements driven by the queue / mixer. */}

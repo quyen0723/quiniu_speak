@@ -17,7 +17,11 @@ async function sha256(input: string): Promise<string> {
 }
 
 export async function cacheKey(text: string, voice: string, speed: number): Promise<string> {
-  return sha256(`${text}|${voice}|${speed}|mp3`);
+  // Normalize whitespace the same way chunker.ts does, so "Hello " and "Hello"
+  // (or inputs with stray newlines/tabs) hash to the same key — no cache miss
+  // just because of cosmetic whitespace differences.
+  const norm = text.replace(/\s+/g, ' ').trim();
+  return sha256(`${norm}|${voice}|${speed}|mp3`);
 }
 
 export async function getCache(key: string): Promise<Blob | null> {

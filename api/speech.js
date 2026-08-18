@@ -47,8 +47,11 @@ function allowedOrigins() {
 
 function setCors(res, origin) {
   const list = allowedOrigins();
-  // Echo the requesting origin only if it is in the allowlist; else pick the first (or none).
-  const value = origin && list.includes(origin) ? origin : list[0] || '';
+  // Echo the requesting origin only if it is in the allowlist; otherwise emit an
+  // empty ACAO so the browser blocks the read. Never fall back to an allowlist
+  // entry — that would echo a different origin and leak an allowed origin to a
+  // stranger's page.
+  const value = origin && list.includes(origin) ? origin : '';
   res.setHeader('Access-Control-Allow-Origin', value);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');

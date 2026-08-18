@@ -178,4 +178,15 @@ export class AudioQueueManager {
     this.el.pause();
     this.el.removeAttribute('src');
   }
+
+  /** Detach all element listeners and clear the queue. Call on unmount to avoid
+   *  orphan listeners leaking across React StrictMode double-mounts. */
+  destroy(): void {
+    this.el.removeEventListener('timeupdate', this.emit);
+    this.el.removeEventListener('loadedmetadata', this.onMeta);
+    this.el.removeEventListener('ended', this.onEnded);
+    this.el.removeEventListener('play', this.emit);
+    this.el.removeEventListener('pause', this.emit);
+    this.clear();
+  }
 }
