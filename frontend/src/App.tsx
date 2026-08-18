@@ -4,7 +4,17 @@ import Toolbar from './components/Toolbar';
 import AudioPlayer from './components/AudioPlayer';
 import MusicPlayer, { type MusicTrack } from './components/MusicPlayer';
 import TokenPrompt from './components/TokenPrompt';
+import HistorySidebar from './components/HistorySidebar';
 import { splitIntoChunks } from './lib/chunker';
+import {
+  createHistoryItem,
+  deleteHistoryItem,
+  getHistoryItem,
+  listHistory,
+  renameHistoryItem,
+  updateHistoryItemText,
+  type HistoryItem,
+} from './lib/history';
 import { cacheKey, getCache, setCache } from './lib/cache';
 import { fetchTTSAudio, TTSError } from './lib/ttsClient';
 import { getToken, hasToken } from './lib/token';
@@ -56,6 +66,11 @@ export default function App() {
   // --- token gate ---
   const [showToken, setShowToken] = useState(false);
   const [tokenPresent, setTokenPresent] = useState(hasToken());
+
+  // --- text history (ChatGPT-style saved documents) ---
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // --- refs ---
   const voiceElRef = useRef<HTMLAudioElement>(null);
@@ -110,6 +125,63 @@ export default function App() {
     if (musicEnabled) mixer.setMusicVolume(musicVolume);
   }, [musicVolume, musicEnabled]);
 
+  // Load saved text history on mount (IndexedDB, local-first).
+  useEffect(() => {
+    void listHistory().then(setHistory);
+  }, []);
+
+  // Best-effort persist of the current text as a history record. Creates a new
+  // record if none is active, otherwise updates the active record's text +
+  // updatedAt. Used by both the "💾 Lưu" button and auto-save on Generate.
+  const persistCurrent = useCallback(async (): Promise<void> => {
+    if (!text.trim()) return;
+    try {
+      if (activeHistoryId) {
+        const updated = await updateHistoryItemText(activeHistoryId, text);
+        if (updated) {
+          setHistory((h) =>
+            h.map((it) => (it.id === updated.id ? updated : it)).sort((a, b) => b.updatedAt - a.updatedAt),
+          );
+        }
+        return;
+      }
+      const created = await createHistoryItem(text);
+      setActiveHistoryId(created.id);
+      setHistory((h) => [created, ...h]);
+    } catch {
+      /* IndexedDB quota exceeded — best-effort, don't block */
+    }
+  }, [text, activeHistoryId]);
+
+  const saveCurrent = useCallback(() => {
+    void persistCurrent();
+  }, [persistCurrent]);
+
+  const loadHistoryItem = useCallback(async (id: string) => {
+    const item = await getHistoryItem(id);
+    if (!item) return;
+    setText(item.text);
+    setActiveHistoryId(item.id);
+    setSidebarOpen(false); // close overlay on mobile
+  }, []);
+
+  const newDocument = useCallback(() => {
+    setText('');
+    setActiveHistoryId(null);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleRename = useCallback(async (id: string, name: string) => {
+    const updated = await renameHistoryItem(id, name);
+    if (updated) setHistory((h) => h.map((it) => (it.id === id ? updated : it)));
+  }, []);
+
+  const handleDelete = useCallback(async (id: string) => {
+    await deleteHistoryItem(id);
+    setHistory((h) => h.filter((it) => it.id !== id));
+    setActiveHistoryId((cur) => (cur === id ? null : cur));
+  }, []);
+
   // --- handlers ---
   const onLanguageChange = (lang: Language) => {
     setLanguage(lang);
@@ -138,6 +210,9 @@ export default function App() {
       setShowToken(true);
       return;
     }
+    // Auto-save the current text as a history record (ChatGPT-style) before
+    // generating. Best-effort — a failure must not block playback.
+    void persistCurrent();
     const chunks = splitIntoChunks(text);
     if (chunks.length === 0) return;
 
@@ -176,7 +251,7 @@ export default function App() {
     } finally {
       if (myGen === genIdRef.current) setIsGenerating(false);
     }
-  }, [text, fetchCached, voiceVolume]);
+  }, [text, fetchCached, voiceVolume, persistCurrent]);
 
   const onPlay = useCallback(() => {
     mixer.attachVoice(voiceElRef.current!);
@@ -194,14 +269,50 @@ export default function App() {
   const canGenerate = text.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-        <header className="pb-1">
-          <h1 className="text-xl font-semibold tracking-tight">quiniu_speak</h1>
-          <p className="text-sm text-neutral-500">
-            Đọc văn bản song ngữ Việt / Anh + nhạc nền.
-          </p>
-        </header>
+    <div className="flex min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      {/* Mobile backdrop behind the sidebar overlay. */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-30 bg-black/40 sm:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      <HistorySidebar
+        open={sidebarOpen}
+        items={history}
+        activeId={activeHistoryId}
+        onClose={() => setSidebarOpen(false)}
+        onSelect={(id) => void loadHistoryItem(id)}
+        onNew={newDocument}
+        onRename={(id, name) => void handleRename(id, name)}
+        onDelete={(id) => void handleDelete(id)}
+      />
+
+      <main className="flex-1 min-w-0">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          <header className="flex items-center gap-2 pb-1">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((o) => !o)}
+              className="rounded-lg px-2 py-1 text-lg text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              aria-label="Lịch sử"
+            >
+              ☰
+            </button>
+            <div className="flex-1">
+              <h1 className="text-xl font-semibold tracking-tight">quiniu_speak</h1>
+              <p className="text-sm text-neutral-500">
+                Đọc văn bản song ngữ Việt / Anh + nhạc nền.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={saveCurrent}
+              disabled={!canGenerate}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-indigo-950"
+              title="Lưu văn bản vào lịch sử"
+            >
+              💾 Lưu
+            </button>
+          </header>
 
         {/* Input Zone */}
         <TextInput value={text} onChange={setText} />
@@ -252,7 +363,8 @@ export default function App() {
           onTrackChange={setMusicTrackId}
           onVolumeChange={setMusicVolume}
         />
-      </div>
+        </div>
+      </main>
 
       {/* Hidden audio elements driven by the queue / mixer. */}
       <audio ref={voiceElRef} hidden preload="auto" />
