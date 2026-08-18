@@ -12,10 +12,19 @@ import { AudioQueueManager, type QueueState } from './lib/audioQueue';
 import { mixer } from './lib/mixer';
 import { voicesFor, type Language } from './types';
 
-// Background music tracks. Empty by default — bundled mp3s would 404 unless
-// actually committed under frontend/public/music/. To enable music, drop files
-// there and add entries here: { id, label, src: `${import.meta.env.BASE_URL}music/<file>.mp3` }.
-const MUSIC_TRACKS: MusicTrack[] = [];
+// Background music tracks. mp3s live in frontend/public/music/ (served at
+// `${BASE_URL}music/...`). Converted from the source mp4s at 128kbps stereo.
+// Each track loops via the native `el.loop = true` in the music effect below —
+// when a long text outlasts a track (~4-5 min), the track auto-replays so the
+// background keeps playing while the voice is still reading.
+const MUSIC_TRACKS: MusicTrack[] = [
+  { id: 'asphyxia', label: 'Asphyxia — 逆時針向', src: `${import.meta.env.BASE_URL}music/asphyxia.mp3` },
+  { id: 'else-paris', label: 'Else — Paris', src: `${import.meta.env.BASE_URL}music/else-paris.mp3` },
+  { id: 'late-night-melancholy', label: 'Late Night Melancholy', src: `${import.meta.env.BASE_URL}music/late-night-melancholy.mp3` },
+  { id: 'shirfine-illusionary-daytime', label: 'Shirfine — Illusionary Daytime', src: `${import.meta.env.BASE_URL}music/shirfine-illusionary-daytime.mp3` },
+  { id: 'star-sky-remix', label: 'Star Sky Remix', src: `${import.meta.env.BASE_URL}music/star-sky-remix.mp3` },
+  { id: 'take-me-hand', label: 'Take Me Hand', src: `${import.meta.env.BASE_URL}music/take-me-hand.mp3` },
+];
 
 const INITIAL_QUEUE: QueueState = {
   isPlaying: false,
